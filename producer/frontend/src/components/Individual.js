@@ -9,6 +9,7 @@ import {
 
 import BitvectorIndividual from "./individuals/BitvectorIndividual";
 import BallDetectionCNNIndividual from "./individuals/BallDetectionCNNIndividual";
+import ETTIndividual from "./individuals/ETTIndividual";
 import StringIndividual from "./individuals/StringIndividual";
 
 function useQuery() {
@@ -31,6 +32,9 @@ export default function Individual({ onConnectedChange }) {
     }
     case "ditef_producer_genetic_individual_ball_detection_cnn": {
       return <BallDetectionCNNIndividual individualId={individualId} url={url} onConnectedChange={onConnectedChange} />;
+    }
+    case "ditef_producer_genetic_individual_ett": {
+      return <ETTIndividual individualId={individualId} url={url} onConnectedChange={onConnectedChange} />;
     }
     case "ditef_producer_genetic_individual_string": {
       return <StringIndividual individualId={individualId} url={url} onConnectedChange={onConnectedChange} />;
