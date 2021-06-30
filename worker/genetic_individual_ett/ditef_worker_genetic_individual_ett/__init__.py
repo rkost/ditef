@@ -8,6 +8,13 @@ import tensorflow as tf
 import pandas as pd
 
 
+train_dataset = pd.read_csv("/mnt/SOFT_500G/50-train-felix.csv")
+test_dataset = pd.read_csv("/mnt/SOFT_500G/25-test-felix.csv")
+
+train_labels = train_dataset.pop('TTA')
+test_labels = test_dataset.pop('TTA')
+
+
 def run(payload):
     genome = payload['genome']
     configuration = payload['configuration']
@@ -33,18 +40,14 @@ def run(payload):
             loss=configuration['loss'],
             metrics=metrics,
         )
-
-        train_dataset = pd.read_csv("/mnt/local3T/50-train.csv")
-        test_dataset = pd.read_csv("/mnt/local3T/25-test.csv")
-
-        train_labels = train_dataset.pop('TTA')
-        test_labels = test_dataset.pop('TTA')
+        print("Model:")
+        model.summary()
 
         model.optimizer.lr.assign(genome['initial_learning_rate'])
 
         tf_train_result = model.fit(
-            train_dataset,
-            train_labels,
+            train_dataset.values,
+            train_labels.values,
             epochs=genome['training_epochs'])
 
         run_result['training_progression'] = [
@@ -59,11 +62,16 @@ def run(payload):
         for _ in run_result['training_progression']:
             run_result['training_progression'][epoch]['epoch'] = epoch + 1
             epoch += 1
-
+        print("Train Datasets:")
+        print(train_dataset.values)
+        print(train_labels.values)
+        print("Test Datasets:")
+        print(test_dataset.values)
+        print(test_labels.values)
+        print("eval call")
+        print(model.evaluate(x=test_dataset.values, y=test_labels.values))
         evaluate_result = {
-            name: value
-            for name, value in zip(['loss'] + configuration['metrics'],
-                                   model.evaluate(test_dataset, test_labels))
+            'loss': model.evaluate(x=test_dataset.values, y=test_labels.values)
         }
 
         for key in evaluate_result:
@@ -75,66 +83,19 @@ def run(payload):
             save_format='h5')
 
         run_result['compiledNN_result'] = 0
-        print(run_result['compiledNN_result'])
+        print("run result")
+        print(run_result)
+        print("evaluate result")
+        print(evaluate_result)
 
     except Exception as e:
         print(e)
         run_result['exception'] = str(e)
 
-    tmp_model_path.unlink()
+    # tmp_model_path.unlink()
     tf.keras.backend.clear_session()
     return run_result
 
-
-def build_convolution_layers(genome):
-    '''Build sequential layer list of convolution layers'''
-
-    layers = []
-    for layer in genome['convolution_layers']:
-        if layer['type'] == 'SeparableConv2D':
-            layers.append(tf.keras.layers.SeparableConv2D(
-                filters=layer['filters'],
-                kernel_size=layer['kernel_size'],
-                strides=layer['stride'],
-                padding='same',
-                use_bias=False,
-            ))
-        elif layer['type'] == 'Conv2D':
-            layers.append(tf.keras.layers.Conv2D(
-                filters=layer['filters'],
-                kernel_size=layer['kernel_size'],
-                strides=layer['stride'],
-                padding='same',
-                use_bias=False,
-            ))
-        else:
-            raise NotImplementedError
-
-        if layer['batch_normalization']:
-            layers.append(tf.keras.layers.BatchNormalization())
-
-        layers.append(tf.keras.layers.Activation(
-            activation=layer['activation_function'],
-        ))
-
-        if layer['pooling_type'] is not None:
-            if layer['pooling_type'] == 'maximum':
-                layers.append(tf.keras.layers.MaxPooling2D(
-                    pool_size=layer['pooling_size'],
-                ))
-            elif layer['pooling_type'] == 'average':
-                layers.append(tf.keras.layers.AveragePooling2D(
-                    pool_size=layer['pooling_size'],
-                ))
-            else:
-                raise NotImplementedError
-
-        if layer['drop_out_rate'] > 0.01:
-            layers.append(tf.keras.layers.Dropout(
-                rate=layer['drop_out_rate'],
-            ))
-
-    return layers
 
 
 def build_dense_layers(genome):
@@ -147,13 +108,13 @@ def build_dense_layers(genome):
             activation=layer['activation_function'],
         ))
 
-        if layer['batch_normalization']:
-            layers.append(tf.keras.layers.BatchNormalization())
+        # if layer['batch_normalization']:
+        #     layers.append(tf.keras.layers.BatchNormalization())
 
-        if layer['drop_out_rate'] > 0.01:
-            layers.append(tf.keras.layers.Dropout(
-                rate=layer['drop_out_rate'],
-            ))
+        # if layer['drop_out_rate'] > 0.01:
+        #     layers.append(tf.keras.layers.Dropout(
+        #         rate=layer['drop_out_rate'],
+        #     ))
 
     return layers
 
@@ -164,7 +125,7 @@ def build_layers(genome, configuration):
     # input layer
     layers = [
         tf.keras.Input(
-            shape=(10, ),
+            shape=(4, ),
         )
     ]
 
@@ -195,64 +156,3 @@ def build_model(genome, configuration):
     return tf.keras.Sequential(
         layers=build_layers(genome, configuration),
     )
-
-
-def shape_and_augment_sample(data, shape, augment_params):
-    image = tf.reshape(tf.cast(data, tf.float32), shape)
-    image = tf.image.random_brightness(
-        image,
-        augment_params['random_brightness_delta'],
-        seed=augment_params['random_brightness_seed'])
-    image = tf.clip_by_value(image, 0.0, 255.0, name=None)
-    return(image)
-
-
-def parse_tfrecord_class(data_size, augment_params, example):
-    parsed = tf.io.parse_single_example(example, features={
-        'data': tf.io.FixedLenFeature([data_size], tf.int64),
-        'dataShape': tf.io.FixedLenFeature([3], tf.int64),
-        'isPositive': tf.io.FixedLenFeature([1], tf.int64),
-        'circle': tf.io.FixedLenFeature([3], tf.float32)
-    })
-    return(shape_and_augment_sample(parsed['data'], parsed['dataShape'], augment_params),
-           tf.cast(parsed['isPositive'], tf.float32))
-
-
-def parse_tfrecord_circle(data_size, augment_params, example):
-    parsed = tf.io.parse_single_example(example, features={
-        'data': tf.io.FixedLenFeature([data_size], tf.int64),
-        'dataShape': tf.io.FixedLenFeature([3], tf.int64),
-        'isPositive': tf.io.FixedLenFeature([1], tf.int64),
-        'circle': tf.io.FixedLenFeature([3], tf.float32)
-    })
-    return(shape_and_augment_sample(parsed['data'], parsed['dataShape'], augment_params),
-           tf.math.multiply(parsed['circle'], tf.constant([1.0/32.0, 1.0/32.0, 1.0/16.0])))
-
-
-def parse_tfrecord_verify(data_size, example):
-    parsed = tf.io.parse_single_example(example, features={
-        'data': tf.io.FixedLenFeature([data_size], tf.int64),
-        'dataShape': tf.io.FixedLenFeature([3], tf.int64),
-        'isPositive': tf.io.FixedLenFeature([1], tf.int64),
-        'circle': tf.io.FixedLenFeature([3], tf.float32)
-    })
-    return tf.reshape(tf.cast(parsed['data'], tf.float32), parsed['dataShape'])
-
-
-def get_dataset(tfr_ds, batch_size, nnType, data_size, augment_params):
-    if (nnType == 'positioner'):
-        tfr_ds = tfr_ds.map(lambda x: parse_tfrecord_circle(
-            data_size, augment_params, x))
-        tfr_ds = tfr_ds.batch(batch_size)
-        tfr_ds = tfr_ds.prefetch(batch_size)
-        return tfr_ds
-    elif (nnType == 'verify'):
-        tfr_ds = tfr_ds.map(lambda x: parse_tfrecord_verify(data_size, x))
-        return tfr_ds
-    else:
-        tfr_ds = tfr_ds.map(lambda x: parse_tfrecord_class(
-            data_size, augment_params, x))
-        tfr_ds = tfr_ds.batch(batch_size)
-        tfr_ds = tfr_ds.prefetch(batch_size)
-        return tfr_ds
-
